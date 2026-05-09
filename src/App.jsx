@@ -1,14 +1,20 @@
-import { db } from "./firebase";
+import { useEffect, useState } from 'react'
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+} from 'firebase/auth'
 import {
   addDoc,
   collection,
   deleteDoc,
   doc,
-  getDocs,
+  onSnapshot,
   updateDoc,
-} from "firebase/firestore";
-import { useEffect, useState } from "react";
-import "./App.css";
+} from 'firebase/firestore'
+import { auth, db } from './firebase'
+import './App.css'
 
 const mealOrder = ['breakfast', 'lunch', 'snack', 'dinner']
 
@@ -28,7 +34,18 @@ const emptyForm = {
   protein: '',
 }
 
-const mealsCollection = collection(db, 'meals')
+const googleProvider = new GoogleAuthProvider()
+googleProvider.setCustomParameters({
+  prompt: 'select_account',
+})
+
+function userMealsCollection(uid) {
+  return collection(db, 'users', uid, 'meals')
+}
+
+function userMealDoc(uid, mealId) {
+  return doc(db, 'users', uid, 'meals', mealId)
+}
 
 function normalizeMeal(docSnapshot) {
   const data = docSnapshot.data()
@@ -54,8 +71,11 @@ function sortMealsByCreatedAt(meals) {
   })
 }
 
+function getUserLabel(user) {
+  return user.displayName || user.email || 'Signed in'
+}
+
 function App() {
-  
   const [activeTab, setActiveTab] = useState('home')
   const [calorieGoal, setCalorieGoal] = useState(2200)
   const [entries, setEntries] = useState([])
@@ -63,6 +83,10 @@ function App() {
   const [goalInput, setGoalInput] = useState('2200')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isLoadingMeals, setIsLoadingMeals] = useState(true)
+  const [authReady, setAuthReady] = useState(false)
+  const [currentUser, setCurrentUser] = useState(null)
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authMessage, setAuthMessage] = useState('')
   const [modalState, setModalState] = useState({
     open: false,
     mode: 'add',
@@ -71,21 +95,45 @@ function App() {
   })
 
   useEffect(() => {
-    async function loadMeals() {
-      try {
-        const snapshot = await getDocs(mealsCollection)
-        const loadedMeals = snapshot.docs.map(normalizeMeal)
-        setEntries(sortMealsByCreatedAt(loadedMeals))
-      } catch (error) {
-        console.error(error)
-        alert('Could not load meals from Firebase')
-      } finally {
-        setIsLoadingMeals(false)
-      }
-    }
+    let unsubscribeMeals = () => {}
 
-    loadMeals()
-  }, [mealsCollection])
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user)
+      setAuthReady(true)
+
+      unsubscribeMeals()
+
+      if (!user) {
+        setEntries([])
+        setIsLoadingMeals(false)
+        closeModal()
+        return
+      }
+
+      setIsLoadingMeals(true)
+
+      const mealsRef = userMealsCollection(user.uid)
+
+      unsubscribeMeals = onSnapshot(
+        mealsRef,
+        (snapshot) => {
+          const loadedMeals = snapshot.docs.map(normalizeMeal)
+          setEntries(sortMealsByCreatedAt(loadedMeals))
+          setIsLoadingMeals(false)
+        },
+        (error) => {
+          console.error(error)
+          setIsLoadingMeals(false)
+          alert('Could not load meals from Firebase')
+        },
+      )
+    })
+
+    return () => {
+      unsubscribeMeals()
+      unsubscribeAuth()
+    }
+  }, [])
 
   const totals = entries.reduce(
     (accumulator, entry) => {
@@ -117,6 +165,11 @@ function App() {
   })
 
   function openAddModal(meal = 'breakfast') {
+    if (!currentUser) {
+      setAuthMessage('Please sign in to add meals.')
+      return
+    }
+
     setModalState({
       open: true,
       mode: 'add',
@@ -126,6 +179,11 @@ function App() {
   }
 
   function openEditModal(entry) {
+    if (!currentUser) {
+      setAuthMessage('Please sign in to edit meals.')
+      return
+    }
+
     setModalState({
       open: true,
       mode: 'edit',
@@ -163,8 +221,41 @@ function App() {
     }))
   }
 
+  async function handleGoogleSignIn() {
+    setAuthBusy(true)
+    setAuthMessage('')
+
+    try {
+      await signInWithPopup(auth, googleProvider)
+    } catch (error) {
+      console.error(error)
+      setAuthMessage('Google sign-in did not complete. Please try again.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function handleSignOutClick() {
+    setAuthBusy(true)
+    setAuthMessage('')
+
+    try {
+      await signOut(auth)
+    } catch (error) {
+      console.error(error)
+      setAuthMessage('Could not sign out right now. Please try again.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
   async function handleSubmitEntry(event) {
     event.preventDefault()
+
+    if (!currentUser) {
+      setAuthMessage('Please sign in to save meals.')
+      return
+    }
 
     const trimmedName = modalState.form.name.trim()
     if (!trimmedName) {
@@ -183,37 +274,15 @@ function App() {
 
     try {
       if (modalState.mode === 'edit') {
-        const mealDocRef = doc(db, 'meals', modalState.entryId)
+        const mealDocRef = userMealDoc(currentUser.uid, modalState.entryId)
         const existingMeal = entries.find((entry) => entry.id === modalState.entryId)
 
         await updateDoc(mealDocRef, {
           ...mealPayload,
           createdAt: existingMeal?.createdAt ?? mealPayload.createdAt,
         })
-
-        setEntries((currentEntries) =>
-          currentEntries.map((entry) =>
-            entry.id === modalState.entryId
-              ? {
-                  ...entry,
-                  ...mealPayload,
-                  createdAt: existingMeal?.createdAt ?? mealPayload.createdAt,
-                }
-              : entry,
-          ),
-        )
       } else {
-        const docRef = await addDoc(mealsCollection, mealPayload)
-
-        setEntries((currentEntries) =>
-          sortMealsByCreatedAt([
-            ...currentEntries,
-            {
-              id: docRef.id,
-              ...mealPayload,
-            },
-          ]),
-        )
+        await addDoc(userMealsCollection(currentUser.uid), mealPayload)
       }
 
       closeModal()
@@ -224,11 +293,13 @@ function App() {
   }
 
   async function handleDeleteEntry(entryId) {
+    if (!currentUser) {
+      setAuthMessage('Please sign in to delete meals.')
+      return
+    }
+
     try {
-      await deleteDoc(doc(db, 'meals', entryId))
-      setEntries((currentEntries) =>
-        currentEntries.filter((entry) => entry.id !== entryId),
-      )
+      await deleteDoc(userMealDoc(currentUser.uid, entryId))
       closeModal()
     } catch (error) {
       console.error(error)
@@ -246,6 +317,8 @@ function App() {
     }
   }
 
+  const signedIn = Boolean(currentUser)
+
   return (
     <div className="app-shell">
       <div className="ambient ambient-left" aria-hidden="true" />
@@ -257,186 +330,266 @@ function App() {
           <h1>Calorie Compass</h1>
         </div>
 
+        <div className="auth-bar">
+          {authReady && signedIn ? (
+            <>
+              <div className="user-chip" title={getUserLabel(currentUser)}>
+                {currentUser.photoURL ? (
+                  <img
+                    className="user-avatar"
+                    src={currentUser.photoURL}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <span className="user-avatar fallback" aria-hidden="true">
+                    {getUserLabel(currentUser).slice(0, 1).toUpperCase()}
+                  </span>
+                )}
+                <span>{getUserLabel(currentUser)}</span>
+              </div>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={handleSignOutClick}
+                disabled={authBusy}
+              >
+                {authBusy ? 'Signing out...' : 'Log out'}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="primary-button"
+              onClick={handleGoogleSignIn}
+              disabled={!authReady || authBusy}
+            >
+              {authBusy ? 'Signing in...' : 'Sign in with Google'}
+            </button>
+          )}
+        </div>
       </header>
 
       <main className="app-grid">
-        <section className="hero-panel">
-          <div className="hero-copy">
-            <p className="section-kicker">Focused tracker</p>
-            <h2>One clean dashboard for calories and macros.</h2>
-            <p className="section-text">
-              Calories show how many you have left. Fat, carbs, and protein
-              show how much you&apos;ve eaten so far today.
-            </p>
-          </div>
-
-          <div className="hero-actions">
-            <button type="button" className="primary-button" onClick={() => openAddModal()}>
-              Add food
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => setActiveTab('meals')}
-            >
-              Open meals
-            </button>
-
-          </div>
-
-          {showGoalEditor ? (
-            <form className="goal-card" onSubmit={handleGoalSubmit}>
-              <label htmlFor="goalInput">Daily calorie goal</label>
-              <div className="goal-row">
-                <input
-                  id="goalInput"
-                  name="goalInput"
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={goalInput}
-                  onChange={(event) => setGoalInput(event.target.value)}
-                />
-                <button type="submit" className="ghost-button strong">
-                  Save
-                </button>
-              </div>
-            </form>
-          ) : null}
-        </section>
-
-        <nav className="tabbar" aria-label="Tracker sections">
-          <button
-            type="button"
-            className={activeTab === 'home' ? 'tab active' : 'tab'}
-            onClick={() => setActiveTab('home')}
-          >
-            Home
-          </button>
-          <button
-            type="button"
-            className={activeTab === 'meals' ? 'tab active' : 'tab'}
-            onClick={() => setActiveTab('meals')}
-          >
-            Meals
-          </button>
-        </nav>
-
-        {activeTab === 'home' ? (
-          <section className="dashboard-view">
-            <article className="ring-card calorie-card">
-              <div
-                className="metric-ring large"
-                style={{
-                  '--ring-fill': `${caloriesConsumedPercent}%`,
-                }}
-              >
-                <div className="metric-inner">
-                  <span className="metric-label">Calories remaining</span>
-                  <strong>{caloriesRemaining}</strong>
-                  <span className="metric-subtext">
-                    {totals.calories} eaten of {calorieGoal}
-                  </span>
-                </div>
-              </div>
-            </article>
-
-            <div className="macro-grid">
-              <MacroCircle label="Fat" value={totals.fat} accent="sun" unit="g" />
-              <MacroCircle label="Carbs" value={totals.carbs} accent="leaf" unit="g" />
-              <MacroCircle
-                label="Protein"
-                value={totals.protein}
-                accent="berry"
-                unit="g"
-              />
+        {!authReady ? (
+          <section className="hero-panel auth-gate">
+            <div className="hero-copy">
+              <p className="section-kicker">Preparing your session</p>
+              <h2>Loading your saved calorie tracker.</h2>
+              <p className="section-text">
+                We are checking your Firebase login so your meals can load back in after a
+                refresh.
+              </p>
+            </div>
+          </section>
+        ) : !signedIn ? (
+          <section className="hero-panel auth-gate">
+            <div className="hero-copy">
+              <p className="section-kicker">Secure login</p>
+              <h2>Sign in to keep your meals tied to your Google account.</h2>
+              <p className="section-text">
+                Your entries will save in Firestore under your user ID, so they stay private
+                and come back after refresh.
+              </p>
             </div>
 
-            <section className="summary-card">
-              <div className="summary-header">
-                <div>
-                  <p className="section-kicker">Meal preview</p>
-                  <h3>Today at a glance</h3>
-                </div>
+            <div className="hero-actions">
+              <button
+                type="button"
+                className="primary-button"
+                onClick={handleGoogleSignIn}
+                disabled={authBusy}
+              >
+                {authBusy ? 'Signing in...' : 'Continue with Google'}
+              </button>
+            </div>
+
+            {authMessage ? <p className="auth-message">{authMessage}</p> : null}
+          </section>
+        ) : (
+          <>
+            <section className="hero-panel">
+              <div className="hero-copy">
+                <p className="section-kicker">Focused tracker</p>
+                <h2>One clean dashboard for calories and macros.</h2>
+                <p className="section-text">
+                  Calories show how many you have left. Fat, carbs, and protein show how much
+                  you&apos;ve eaten so far today.
+                </p>
+              </div>
+
+              <div className="hero-actions">
                 <button
                   type="button"
-                  className="ghost-button"
+                  className="primary-button"
+                  onClick={() => openAddModal()}
+                >
+                  Add food
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
                   onClick={() => setActiveTab('meals')}
                 >
-                  See all meals
+                  Open meals
                 </button>
               </div>
 
-              <div className="meal-preview-grid">
-                {groupedMeals.map((meal) => (
-                  <button
-                    type="button"
-                    key={meal.key}
-                    className="meal-preview"
-                    onClick={() => setActiveTab('meals')}
-                  >
-                    <span>{meal.label}</span>
-                    <strong>{meal.calories} cal</strong>
-                    <small>{meal.entries.length} foods</small>
-                  </button>
-                ))}
-              </div>
-            </section>
-          </section>
-        ) : (
-          <section className="meals-view">
-            {groupedMeals.map((meal) => (
-              <article className="meal-card" key={meal.key}>
-                <div className="meal-card-header">
-                  <div>
-                    <p className="section-kicker">{meal.entries.length} foods logged</p>
-                    <h3>{meal.label}</h3>
-                  </div>
-                  <div className="meal-card-actions">
-                    <span className="meal-total">{meal.calories} cal</span>
-                    <button
-                      type="button"
-                      className="ghost-button strong"
-                      onClick={() => openAddModal(meal.key)}
-                    >
-                      Add food
+              {showGoalEditor ? (
+                <form className="goal-card" onSubmit={handleGoalSubmit}>
+                  <label htmlFor="goalInput">Daily calorie goal</label>
+                  <div className="goal-row">
+                    <input
+                      id="goalInput"
+                      name="goalInput"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={goalInput}
+                      onChange={(event) => setGoalInput(event.target.value)}
+                    />
+                    <button type="submit" className="ghost-button strong">
+                      Save
                     </button>
                   </div>
+                </form>
+              ) : null}
+            </section>
+
+            <nav className="tabbar" aria-label="Tracker sections">
+              <button
+                type="button"
+                className={activeTab === 'home' ? 'tab active' : 'tab'}
+                onClick={() => setActiveTab('home')}
+              >
+                Home
+              </button>
+              <button
+                type="button"
+                className={activeTab === 'meals' ? 'tab active' : 'tab'}
+                onClick={() => setActiveTab('meals')}
+              >
+                Meals
+              </button>
+            </nav>
+
+            {activeTab === 'home' ? (
+              <section className="dashboard-view">
+                <article className="ring-card calorie-card">
+                  <div
+                    className="metric-ring large"
+                    style={{
+                      '--ring-fill': `${caloriesConsumedPercent}%`,
+                    }}
+                  >
+                    <div className="metric-inner">
+                      <span className="metric-label">Calories remaining</span>
+                      <strong>{caloriesRemaining}</strong>
+                      <span className="metric-subtext">
+                        {totals.calories} eaten of {calorieGoal}
+                      </span>
+                    </div>
+                  </div>
+                </article>
+
+                <div className="macro-grid">
+                  <MacroCircle label="Fat" value={totals.fat} accent="sun" unit="g" />
+                  <MacroCircle label="Carbs" value={totals.carbs} accent="leaf" unit="g" />
+                  <MacroCircle
+                    label="Protein"
+                    value={totals.protein}
+                    accent="berry"
+                    unit="g"
+                  />
                 </div>
 
-                {meal.entries.length ? (
-                  <ul className="entry-list">
-                    {meal.entries.map((entry) => (
-                      <li className="entry-row" key={entry.id}>
-                        <button
-                          type="button"
-                          className="entry-button"
-                          onClick={() => openEditModal(entry)}
-                        >
-                          <span className="entry-name">{entry.name}</span>
-                          <span className="entry-macros">
-                            {entry.calories} cal | {entry.fat}F | {entry.carbs}C |{' '}
-                            {entry.protein}P
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="empty-meal">
-                    <p>{isLoadingMeals ? 'Loading meals...' : 'No foods added yet.'}</p>
+                <section className="summary-card">
+                  <div className="summary-header">
+                    <div>
+                      <p className="section-kicker">Meal preview</p>
+                      <h3>Today at a glance</h3>
+                    </div>
                     <button
                       type="button"
-                      className="secondary-button"
-                      onClick={() => openAddModal(meal.key)}
+                      className="ghost-button"
+                      onClick={() => setActiveTab('meals')}
                     >
-                      Add your first item
+                      See all meals
                     </button>
                   </div>
-                )}
-              </article>
-            ))}
-          </section>
+
+                  <div className="meal-preview-grid">
+                    {groupedMeals.map((meal) => (
+                      <button
+                        type="button"
+                        key={meal.key}
+                        className="meal-preview"
+                        onClick={() => setActiveTab('meals')}
+                      >
+                        <span>{meal.label}</span>
+                        <strong>{meal.calories} cal</strong>
+                        <small>{meal.entries.length} foods</small>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              </section>
+            ) : (
+              <section className="meals-view">
+                {groupedMeals.map((meal) => (
+                  <article className="meal-card" key={meal.key}>
+                    <div className="meal-card-header">
+                      <div>
+                        <p className="section-kicker">{meal.entries.length} foods logged</p>
+                        <h3>{meal.label}</h3>
+                      </div>
+                      <div className="meal-card-actions">
+                        <span className="meal-total">{meal.calories} cal</span>
+                        <button
+                          type="button"
+                          className="ghost-button strong"
+                          onClick={() => openAddModal(meal.key)}
+                        >
+                          Add food
+                        </button>
+                      </div>
+                    </div>
+
+                    {meal.entries.length ? (
+                      <ul className="entry-list">
+                        {meal.entries.map((entry) => (
+                          <li className="entry-row" key={entry.id}>
+                            <button
+                              type="button"
+                              className="entry-button"
+                              onClick={() => openEditModal(entry)}
+                            >
+                              <span className="entry-name">{entry.name}</span>
+                              <span className="entry-macros">
+                                {entry.calories} cal | {entry.fat}F | {entry.carbs}C |{' '}
+                                {entry.protein}P
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="empty-meal">
+                        <p>{isLoadingMeals ? 'Loading meals...' : 'No foods added yet.'}</p>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => openAddModal(meal.key)}
+                        >
+                          Add your first item
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </section>
+            )}
+          </>
         )}
       </main>
 
