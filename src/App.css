@@ -1,0 +1,599 @@
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+  padding: 32px 24px 120px;
+  overflow: hidden;
+}
+
+.ambient {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(18px);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.ambient-left {
+  width: 20rem;
+  height: 20rem;
+  top: -5rem;
+  left: -7rem;
+  background: radial-gradient(circle, rgba(249, 195, 85, 0.35), transparent 70%);
+}
+
+.ambient-right {
+  width: 22rem;
+  height: 22rem;
+  top: 10rem;
+  right: -9rem;
+  background: radial-gradient(circle, rgba(129, 178, 154, 0.28), transparent 70%);
+}
+
+.topbar,
+.app-grid,
+.entry-modal {
+  position: relative;
+  z-index: 1;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 0 auto 28px;
+  max-width: 1180px;
+}
+
+.eyebrow,
+.section-kicker {
+  margin: 0 0 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.topbar h1,
+.hero-copy h2,
+.summary-header h3,
+.meal-card-header h3,
+.modal-header h3 {
+  margin: 0;
+}
+
+.app-grid {
+  display: grid;
+  gap: 20px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.hero-panel,
+.tabbar,
+.ring-card,
+.summary-card,
+.meal-card,
+.goal-card,
+.entry-modal {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(14px);
+}
+
+.hero-panel {
+  display: grid;
+  gap: 20px;
+  padding: 28px;
+  border-radius: 32px;
+  background:
+    linear-gradient(135deg, rgba(255, 248, 235, 0.95), rgba(255, 255, 255, 0.82)),
+    var(--panel);
+}
+
+.hero-copy h2 {
+  max-width: 12ch;
+}
+
+.section-text {
+  max-width: 38rem;
+  margin: 14px 0 0;
+  color: var(--muted);
+}
+
+.hero-actions,
+.goal-row,
+.summary-header,
+.meal-card-header,
+.meal-card-actions,
+.modal-header,
+.modal-actions,
+.action-pair {
+  display: flex;
+  align-items: center;
+}
+
+.hero-actions,
+.action-pair {
+  gap: 12px;
+}
+
+.goal-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 22px;
+  max-width: 24rem;
+}
+
+.goal-card label,
+.entry-form label {
+  display: grid;
+  gap: 8px;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.goal-row {
+  gap: 12px;
+}
+
+.tabbar {
+  display: inline-flex;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 999px;
+  justify-self: start;
+}
+
+.tab {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 12px 20px;
+  border-radius: 999px;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.tab:hover,
+.tab:focus-visible {
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--text);
+}
+
+.tab.active {
+  background: var(--accent);
+  color: #fff9f0;
+}
+
+.dashboard-view,
+.meals-view {
+  display: grid;
+  gap: 20px;
+}
+
+.dashboard-view {
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  align-items: start;
+}
+
+.calorie-card {
+  padding: 24px;
+  border-radius: 36px;
+}
+
+.macro-grid {
+  display: grid;
+  gap: 20px;
+}
+
+.ring-card {
+  padding: 20px;
+  border-radius: 30px;
+}
+
+.metric-ring {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  margin: 0 auto;
+}
+
+.metric-ring.large {
+  width: min(100%, 25rem);
+  aspect-ratio: 1;
+  background:
+    radial-gradient(circle at center, #fff7eb 0 58%, transparent 59%),
+    conic-gradient(var(--accent) var(--ring-fill), rgba(219, 208, 190, 0.45) 0);
+}
+
+.metric-ring.small {
+  width: min(100%, 12rem);
+  aspect-ratio: 1;
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.92) 0 60%, transparent 61%),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.95), rgba(248, 238, 223, 0.78));
+  border: 1px solid rgba(134, 95, 60, 0.1);
+}
+
+.macro-card.sun .metric-ring.small {
+  box-shadow: inset 0 0 0 14px rgba(232, 167, 38, 0.18);
+}
+
+.macro-card.leaf .metric-ring.small {
+  box-shadow: inset 0 0 0 14px rgba(89, 153, 113, 0.16);
+}
+
+.macro-card.berry .metric-ring.small {
+  box-shadow: inset 0 0 0 14px rgba(194, 84, 68, 0.15);
+}
+
+.metric-inner {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 18px;
+}
+
+.metric-label {
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+.metric-inner strong {
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 6vw, 4.9rem);
+  line-height: 0.96;
+  color: var(--text);
+}
+
+.macro-card strong {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 2.4rem;
+}
+
+.macro-card strong span {
+  font-size: 1rem;
+  color: var(--muted);
+}
+
+.metric-subtext {
+  color: var(--muted);
+  font-size: 0.96rem;
+}
+
+.summary-card,
+.meal-card {
+  padding: 24px;
+  border-radius: 30px;
+}
+
+.summary-header,
+.meal-card-header,
+.modal-header,
+.modal-actions {
+  justify-content: space-between;
+}
+
+.meal-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.meal-preview,
+.entry-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.meal-preview {
+  display: grid;
+  gap: 6px;
+  padding: 18px;
+  border-radius: 22px;
+  background: rgba(255, 250, 241, 0.78);
+  border: 1px solid rgba(158, 128, 91, 0.14);
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.meal-preview:hover,
+.meal-preview:focus-visible,
+.entry-button:hover,
+.entry-button:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(72, 53, 32, 0.08);
+}
+
+.meal-preview strong,
+.meal-total,
+.entry-name {
+  color: var(--text);
+}
+
+.meal-preview small,
+.entry-macros,
+.empty-meal p {
+  color: var(--muted);
+}
+
+.meals-view {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.meal-card {
+  display: grid;
+  gap: 18px;
+}
+
+.meal-card-actions {
+  gap: 12px;
+}
+
+.meal-total {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+}
+
+.entry-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.entry-button {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(255, 250, 241, 0.7);
+  border: 1px solid rgba(158, 128, 91, 0.14);
+}
+
+.entry-name,
+.entry-macros {
+  display: block;
+}
+
+.entry-name {
+  font-weight: 700;
+}
+
+.entry-macros {
+  text-align: right;
+}
+
+.empty-meal {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  padding: 18px;
+  border-radius: 22px;
+  background: rgba(255, 250, 241, 0.64);
+  border: 1px dashed rgba(158, 128, 91, 0.28);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(43, 31, 18, 0.32);
+}
+
+.entry-modal {
+  width: min(100%, 42rem);
+  padding: 24px;
+  border-radius: 32px;
+}
+
+.entry-form {
+  display: grid;
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.modal-actions {
+  margin-top: 8px;
+}
+
+.confirm-delete {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(201, 94, 69, 0.28);
+  background: rgba(255, 240, 235, 0.92);
+  display: grid;
+  gap: 14px;
+}
+
+.confirm-delete p {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.primary-button,
+.secondary-button,
+.ghost-button,
+.danger-button,
+input,
+select {
+  font: inherit;
+}
+
+.primary-button,
+.secondary-button,
+.ghost-button,
+.danger-button {
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+.primary-button,
+.secondary-button,
+.danger-button {
+  padding: 12px 18px;
+  border: 0;
+}
+
+.primary-button {
+  color: #fffaf2;
+  background: var(--accent);
+  box-shadow: 0 14px 28px rgba(188, 109, 43, 0.2);
+}
+
+.secondary-button {
+  color: var(--text);
+  background: rgba(255, 250, 241, 0.75);
+  border: 1px solid rgba(158, 128, 91, 0.14);
+}
+
+.ghost-button {
+  padding: 11px 16px;
+  border: 1px solid rgba(158, 128, 91, 0.16);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.ghost-button.strong {
+  background: rgba(246, 236, 222, 0.88);
+}
+
+.danger-button {
+  color: #fff6f1;
+  background: #c95e45;
+}
+
+.primary-button:hover,
+.primary-button:focus-visible,
+.secondary-button:hover,
+.secondary-button:focus-visible,
+.ghost-button:hover,
+.ghost-button:focus-visible,
+.danger-button:hover,
+.danger-button:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(72, 53, 32, 0.12);
+}
+
+input,
+select {
+  width: 100%;
+  border-radius: 16px;
+  border: 1px solid rgba(158, 128, 91, 0.22);
+  background: rgba(255, 255, 255, 0.82);
+  padding: 14px 16px;
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+input:focus-visible,
+select:focus-visible,
+.tab:focus-visible,
+.entry-button:focus-visible,
+.meal-preview:focus-visible {
+  outline: 2px solid rgba(188, 109, 43, 0.55);
+  outline-offset: 2px;
+}
+
+@media (max-width: 960px) {
+  .dashboard-view,
+  .meals-view {
+    grid-template-columns: 1fr;
+  }
+
+  .macro-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .meal-preview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 20px 14px 104px;
+  }
+
+  .topbar,
+  .hero-actions,
+  .summary-header,
+  .meal-card-header,
+  .meal-card-actions,
+  .modal-header,
+  .modal-actions,
+  .action-pair {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .topbar,
+  .goal-row {
+    gap: 12px;
+  }
+
+  .hero-panel,
+  .summary-card,
+  .meal-card,
+  .entry-modal {
+    padding: 20px;
+    border-radius: 24px;
+  }
+
+  .macro-grid,
+  .form-grid,
+  .meal-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .entry-button {
+    flex-direction: column;
+  }
+
+  .entry-macros {
+    text-align: left;
+  }
+
+  .tabbar {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .tab {
+    flex: 1;
+  }
+}
