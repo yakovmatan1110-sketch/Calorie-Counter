@@ -1,5 +1,14 @@
-import { useState } from 'react'
-import './App.css'
+import { db } from "./firebase";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  updateDoc,
+} from "firebase/firestore";
+import { useEffect, useState } from "react";
+import "./App.css";
 
 const mealOrder = ['breakfast', 'lunch', 'snack', 'dinner']
 
@@ -10,36 +19,6 @@ const mealLabels = {
   dinner: 'Dinner',
 }
 
-const initialEntries = [
-  {
-    id: crypto.randomUUID(),
-    meal: 'breakfast',
-    name: 'Greek Yogurt Bowl',
-    calories: 320,
-    fat: 9,
-    carbs: 28,
-    protein: 31,
-  },
-  {
-    id: crypto.randomUUID(),
-    meal: 'lunch',
-    name: 'Chicken Wrap',
-    calories: 540,
-    fat: 18,
-    carbs: 42,
-    protein: 39,
-  },
-  {
-    id: crypto.randomUUID(),
-    meal: 'snack',
-    name: 'Banana',
-    calories: 105,
-    fat: 0,
-    carbs: 27,
-    protein: 1,
-  },
-]
-
 const emptyForm = {
   meal: 'breakfast',
   name: '',
@@ -49,19 +28,64 @@ const emptyForm = {
   protein: '',
 }
 
+const mealsCollection = collection(db, 'meals')
+
+function normalizeMeal(docSnapshot) {
+  const data = docSnapshot.data()
+
+  return {
+    id: docSnapshot.id,
+    meal: data.meal ?? 'breakfast',
+    name: data.name ?? data.food ?? 'Untitled food',
+    calories: Number(data.calories) || 0,
+    fat: Number(data.fat) || 0,
+    carbs: Number(data.carbs) || 0,
+    protein: Number(data.protein) || 0,
+    createdAt: data.createdAt ?? null,
+  }
+}
+
+function sortMealsByCreatedAt(meals) {
+  return [...meals].sort((firstMeal, secondMeal) => {
+    const firstTime = firstMeal.createdAt?.toMillis?.() ?? 0
+    const secondTime = secondMeal.createdAt?.toMillis?.() ?? 0
+
+    return firstTime - secondTime
+  })
+}
+
 function App() {
+  
   const [activeTab, setActiveTab] = useState('home')
   const [calorieGoal, setCalorieGoal] = useState(2200)
-  const [entries, setEntries] = useState(initialEntries)
+  const [entries, setEntries] = useState([])
   const [showGoalEditor, setShowGoalEditor] = useState(false)
   const [goalInput, setGoalInput] = useState('2200')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isLoadingMeals, setIsLoadingMeals] = useState(true)
   const [modalState, setModalState] = useState({
     open: false,
     mode: 'add',
     entryId: null,
     form: emptyForm,
   })
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  useEffect(() => {
+    async function loadMeals() {
+      try {
+        const snapshot = await getDocs(mealsCollection)
+        const loadedMeals = snapshot.docs.map(normalizeMeal)
+        setEntries(sortMealsByCreatedAt(loadedMeals))
+      } catch (error) {
+        console.error(error)
+        alert('Could not load meals from Firebase')
+      } finally {
+        setIsLoadingMeals(false)
+      }
+    }
+
+    loadMeals()
+  }, [mealsCollection])
 
   const totals = entries.reduce(
     (accumulator, entry) => {
@@ -139,7 +163,7 @@ function App() {
     }))
   }
 
-  function handleSubmitEntry(event) {
+  async function handleSubmitEntry(event) {
     event.preventDefault()
 
     const trimmedName = modalState.form.name.trim()
@@ -147,34 +171,69 @@ function App() {
       return
     }
 
-    const normalizedEntry = {
-      id: modalState.entryId ?? crypto.randomUUID(),
+    const mealPayload = {
       meal: modalState.form.meal,
       name: trimmedName,
       calories: Number(modalState.form.calories) || 0,
       fat: Number(modalState.form.fat) || 0,
       carbs: Number(modalState.form.carbs) || 0,
       protein: Number(modalState.form.protein) || 0,
+      createdAt: new Date(),
     }
 
-    if (modalState.mode === 'edit') {
-      setEntries((currentEntries) =>
-        currentEntries.map((entry) =>
-          entry.id === modalState.entryId ? normalizedEntry : entry,
-        ),
-      )
-    } else {
-      setEntries((currentEntries) => [...currentEntries, normalizedEntry])
-    }
+    try {
+      if (modalState.mode === 'edit') {
+        const mealDocRef = doc(db, 'meals', modalState.entryId)
+        const existingMeal = entries.find((entry) => entry.id === modalState.entryId)
 
-    closeModal()
+        await updateDoc(mealDocRef, {
+          ...mealPayload,
+          createdAt: existingMeal?.createdAt ?? mealPayload.createdAt,
+        })
+
+        setEntries((currentEntries) =>
+          currentEntries.map((entry) =>
+            entry.id === modalState.entryId
+              ? {
+                  ...entry,
+                  ...mealPayload,
+                  createdAt: existingMeal?.createdAt ?? mealPayload.createdAt,
+                }
+              : entry,
+          ),
+        )
+      } else {
+        const docRef = await addDoc(mealsCollection, mealPayload)
+
+        setEntries((currentEntries) =>
+          sortMealsByCreatedAt([
+            ...currentEntries,
+            {
+              id: docRef.id,
+              ...mealPayload,
+            },
+          ]),
+        )
+      }
+
+      closeModal()
+    } catch (error) {
+      console.error(error)
+      alert('Could not save this meal to Firebase')
+    }
   }
 
-  function handleDeleteEntry(entryId) {
-    setEntries((currentEntries) =>
-      currentEntries.filter((entry) => entry.id !== entryId),
-    )
-    closeModal()
+  async function handleDeleteEntry(entryId) {
+    try {
+      await deleteDoc(doc(db, 'meals', entryId))
+      setEntries((currentEntries) =>
+        currentEntries.filter((entry) => entry.id !== entryId),
+      )
+      closeModal()
+    } catch (error) {
+      console.error(error)
+      alert('Could not delete this meal from Firebase')
+    }
   }
 
   function handleGoalSubmit(event) {
@@ -197,13 +256,7 @@ function App() {
           <p className="eyebrow">Today&apos;s nutrition</p>
           <h1>Calorie Compass</h1>
         </div>
-        <button
-          type="button"
-          className="ghost-button"
-          onClick={() => setShowGoalEditor((current) => !current)}
-        >
-          Goal: {calorieGoal}
-        </button>
+
       </header>
 
       <main className="app-grid">
@@ -228,6 +281,7 @@ function App() {
             >
               Open meals
             </button>
+
           </div>
 
           {showGoalEditor ? (
@@ -370,7 +424,7 @@ function App() {
                   </ul>
                 ) : (
                   <div className="empty-meal">
-                    <p>No foods added yet.</p>
+                    <p>{isLoadingMeals ? 'Loading meals...' : 'No foods added yet.'}</p>
                     <button
                       type="button"
                       className="secondary-button"
