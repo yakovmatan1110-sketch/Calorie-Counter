@@ -11,6 +11,7 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
+  setDoc,
   updateDoc,
 } from 'firebase/firestore'
 import { auth, db } from './firebase'
@@ -30,6 +31,14 @@ const navItems = [
   { key: 'meals', label: 'Meals', icon: MealsIcon },
   { key: 'profile', label: 'Profile', icon: ProfileIcon },
 ]
+
+const defaultNutritionSettings = {
+  trackingMode: 'goal_tracking',
+  calorieGoal: 2200,
+  proteinGoal: 150,
+  carbsGoal: 250,
+  fatGoal: 70,
+}
 
 const emptyForm = {
   meal: 'breakfast',
@@ -53,6 +62,10 @@ function userMealDoc(uid, mealId) {
   return doc(db, 'users', uid, 'meals', mealId)
 }
 
+function userNutritionSettingsDoc(uid) {
+  return doc(db, 'users', uid, 'settings', 'nutrition')
+}
+
 function normalizeMeal(docSnapshot) {
   const data = docSnapshot.data()
 
@@ -66,6 +79,28 @@ function normalizeMeal(docSnapshot) {
     protein: Number(data.protein) || 0,
     createdAt: data.createdAt ?? null,
   }
+}
+
+function normalizeNutritionSettings(data = {}) {
+  return {
+    trackingMode: data.trackingMode === 'tracking_only' ? 'tracking_only' : 'goal_tracking',
+    calorieGoal: toPositiveNumber(data.calorieGoal, defaultNutritionSettings.calorieGoal),
+    proteinGoal: toPositiveNumber(data.proteinGoal, defaultNutritionSettings.proteinGoal),
+    carbsGoal: toPositiveNumber(data.carbsGoal, defaultNutritionSettings.carbsGoal),
+    fatGoal: toPositiveNumber(data.fatGoal, defaultNutritionSettings.fatGoal),
+  }
+}
+
+function toPositiveNumber(value, fallback) {
+  const parsed = Number(value)
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function formatMetricValue(value) {
+  const rounded = Math.round(value * 10) / 10
+
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
 }
 
 function sortMealsByCreatedAt(meals) {
@@ -83,10 +118,9 @@ function getUserLabel(user) {
 
 function App() {
   const [activeTab, setActiveTab] = useState('home')
-  const [calorieGoal, setCalorieGoal] = useState(2200)
+  const [nutritionSettings, setNutritionSettings] = useState(defaultNutritionSettings)
+  const [nutritionForm, setNutritionForm] = useState(defaultNutritionSettings)
   const [entries, setEntries] = useState([])
-  const [showGoalEditor, setShowGoalEditor] = useState(false)
-  const [goalInput, setGoalInput] = useState('2200')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isLoadingMeals, setIsLoadingMeals] = useState(true)
   const [authReady, setAuthReady] = useState(false)
@@ -102,18 +136,21 @@ function App() {
 
   useEffect(() => {
     let unsubscribeMeals = () => {}
+    let unsubscribeSettings = () => {}
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user)
       setAuthReady(true)
 
       unsubscribeMeals()
+      unsubscribeSettings()
 
       if (!user) {
         setEntries([])
         setIsLoadingMeals(false)
-        setShowGoalEditor(false)
         setShowDeleteConfirm(false)
+        setNutritionSettings(defaultNutritionSettings)
+        setNutritionForm(defaultNutritionSettings)
         setModalState({
           open: false,
           mode: 'add',
@@ -127,6 +164,7 @@ function App() {
       setIsLoadingMeals(true)
 
       const mealsRef = userMealsCollection(user.uid)
+      const settingsRef = userNutritionSettingsDoc(user.uid)
 
       unsubscribeMeals = onSnapshot(
         mealsRef,
@@ -141,15 +179,36 @@ function App() {
           alert('Could not load meals from Firebase')
         },
       )
+
+      unsubscribeSettings = onSnapshot(
+        settingsRef,
+        (snapshot) => {
+          if (snapshot.exists()) {
+            const loadedSettings = normalizeNutritionSettings(snapshot.data())
+            setNutritionSettings(loadedSettings)
+            setNutritionForm(loadedSettings)
+            return
+          }
+
+          setNutritionSettings(defaultNutritionSettings)
+          setNutritionForm(defaultNutritionSettings)
+          void setDoc(settingsRef, defaultNutritionSettings, { merge: true })
+        },
+        (error) => {
+          console.error(error)
+        },
+      )
     })
 
     return () => {
       unsubscribeMeals()
+      unsubscribeSettings()
       unsubscribeAuth()
     }
   }, [])
 
   const signedIn = Boolean(currentUser)
+  const showGoalTracking = nutritionSettings.trackingMode === 'goal_tracking'
 
   const totals = entries.reduce(
     (accumulator, entry) => {
@@ -162,11 +221,53 @@ function App() {
     { calories: 0, fat: 0, carbs: 0, protein: 0 },
   )
 
-  const caloriesRemaining = Math.max(0, calorieGoal - totals.calories)
-  const caloriesConsumedPercent = Math.min(
-    100,
-    Math.max(0, Math.round((totals.calories / calorieGoal) * 100)),
-  )
+  const calorieGoalCompleted =
+    showGoalTracking &&
+    nutritionSettings.calorieGoal > 0 &&
+    totals.calories >= nutritionSettings.calorieGoal
+
+  const metricCards = [
+    {
+      key: 'calories',
+      label: 'Calories',
+      current: totals.calories,
+      goal: nutritionSettings.calorieGoal,
+      unit: 'cal',
+      accent: 'calories',
+      completed: calorieGoalCompleted,
+      completionLabel: 'Goal completed',
+    },
+    {
+      key: 'protein',
+      label: 'Protein',
+      current: totals.protein,
+      goal: nutritionSettings.proteinGoal,
+      unit: 'g',
+      accent: 'protein',
+      completed: showGoalTracking && totals.protein >= nutritionSettings.proteinGoal,
+      completionLabel: 'Goal met',
+    },
+    {
+      key: 'carbs',
+      label: 'Carbs',
+      current: totals.carbs,
+      goal: nutritionSettings.carbsGoal,
+      unit: 'g',
+      accent: 'carbs',
+      completed: showGoalTracking && totals.carbs >= nutritionSettings.carbsGoal,
+      completionLabel: 'Goal met',
+    },
+    {
+      key: 'fat',
+      label: 'Fat',
+      current: totals.fat,
+      goal: nutritionSettings.fatGoal,
+      unit: 'g',
+      accent: 'fat',
+      completed: showGoalTracking && totals.fat >= nutritionSettings.fatGoal,
+      completionLabel: 'Goal met',
+    },
+  ]
 
   const groupedMeals = mealOrder.map((mealKey) => {
     const mealEntries = entries.filter((entry) => entry.meal === mealKey)
@@ -328,20 +429,59 @@ function App() {
     }
   }
 
-  function handleGoalSubmit(event) {
-    event.preventDefault()
-    const nextGoal = Number(goalInput)
+  async function saveNutritionSettings(nextSettings) {
+    if (!currentUser) {
+      return
+    }
 
-    if (nextGoal > 0) {
-      setCalorieGoal(nextGoal)
-      setShowGoalEditor(false)
+    try {
+      await setDoc(userNutritionSettingsDoc(currentUser.uid), nextSettings, { merge: true })
+    } catch (error) {
+      console.error(error)
+      setAuthMessage('Could not save nutrition settings right now.')
     }
   }
 
-  function openGoalEditor() {
-    setGoalInput(String(calorieGoal))
-    setShowGoalEditor(true)
-    setActiveTab('profile')
+  function applyNutritionSettings(nextSettings) {
+    setNutritionSettings(nextSettings)
+    setNutritionForm(nextSettings)
+    void saveNutritionSettings(nextSettings)
+  }
+
+  function handleTrackingModeChange(nextMode) {
+    if (!currentUser) {
+      setAuthMessage('Please sign in to save nutrition settings.')
+      setActiveTab('profile')
+      return
+    }
+
+    applyNutritionSettings(
+      normalizeNutritionSettings({
+        ...nutritionForm,
+        trackingMode: nextMode,
+      }),
+    )
+  }
+
+  function handleNutritionFormChange(event) {
+    const { name, value } = event.target
+
+    setNutritionForm((current) => ({
+      ...current,
+      [name]: value,
+    }))
+  }
+
+  function handleNutritionFormSubmit(event) {
+    event.preventDefault()
+
+    if (!currentUser) {
+      setAuthMessage('Please sign in to save nutrition settings.')
+      setActiveTab('profile')
+      return
+    }
+
+    applyNutritionSettings(normalizeNutritionSettings(nutritionForm))
   }
 
   function renderLockedState(title, body) {
@@ -377,7 +517,7 @@ function App() {
     if (!signedIn) {
       return renderLockedState(
         'Unlock your personal dashboard.',
-        'Sign in to load your meals from Firestore and keep your calorie tracking synced across devices.',
+        'Sign in to load your meals from Firestore and keep your nutrition tracking synced across devices.',
       )
     }
 
@@ -386,10 +526,13 @@ function App() {
         <section className="hero-panel home-hero">
           <div className="hero-copy">
             <p className="section-kicker">Today</p>
-            <h2>Calories, macros, and meals in one glance.</h2>
+            <h2>
+              {showGoalTracking ? 'Calories and macros with live progress.' : 'Minimal nutrition totals.'}
+            </h2>
             <p className="section-text">
-              Your daily progress stays front and center, with quick access to meal logging
-              whenever you need it.
+              {showGoalTracking
+                ? 'Your daily goals stay in sync with Firestore and update the dashboard instantly.'
+                : 'Tracking Only mode keeps the dashboard clean with totals only.'}
             </p>
           </div>
 
@@ -397,73 +540,53 @@ function App() {
             <button type="button" className="primary-button" onClick={() => openAddModal()}>
               Add food
             </button>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => setActiveTab('profile')}
-            >
-              Profile
-            </button>
-            <button type="button" className="ghost-button strong" onClick={openGoalEditor}>
-              Edit goal
+            <button type="button" className="secondary-button" onClick={() => setActiveTab('profile')}>
+              Nutrition settings
             </button>
           </div>
         </section>
 
-        <section className="dashboard-view">
-          <article className="ring-card calorie-card">
-            <div
-              className="metric-ring large"
-              style={{
-                '--ring-fill': `${caloriesConsumedPercent}%`,
-              }}
-            >
-              <div className="metric-inner">
-                <span className="metric-label">Calories remaining</span>
-                <strong>{caloriesRemaining}</strong>
-                <span className="metric-subtext">
-                  {totals.calories} eaten of {calorieGoal}
-                </span>
-              </div>
-            </div>
-          </article>
+        <section className="nutrition-grid">
+          {metricCards.map((metric) => (
+            <NutritionMetricCard
+              key={metric.key}
+              label={metric.label}
+              current={metric.current}
+              goal={metric.goal}
+              unit={metric.unit}
+              accent={metric.accent}
+              showGoal={showGoalTracking}
+              completed={metric.completed}
+              completionLabel={metric.completionLabel}
+            />
+          ))}
+        </section>
 
-          <div className="macro-grid">
-            <MacroCircle label="Fat" value={totals.fat} accent="sun" unit="g" />
-            <MacroCircle label="Carbs" value={totals.carbs} accent="leaf" unit="g" />
-            <MacroCircle label="Protein" value={totals.protein} accent="berry" unit="g" />
+        <section className="summary-card">
+          <div className="summary-header">
+            <div>
+              <p className="section-kicker">Meal preview</p>
+              <h3>Today at a glance</h3>
+            </div>
+            <button type="button" className="ghost-button" onClick={() => setActiveTab('meals')}>
+              See all meals
+            </button>
           </div>
 
-          <section className="summary-card">
-            <div className="summary-header">
-              <div>
-                <p className="section-kicker">Meal preview</p>
-                <h3>Today at a glance</h3>
-              </div>
+          <div className="meal-preview-grid">
+            {groupedMeals.map((meal) => (
               <button
                 type="button"
-                className="ghost-button"
+                key={meal.key}
+                className="meal-preview"
                 onClick={() => setActiveTab('meals')}
               >
-                See all meals
+                <span>{meal.label}</span>
+                <strong>{meal.calories} cal</strong>
+                <small>{meal.entries.length} foods</small>
               </button>
-            </div>
-
-            <div className="meal-preview-grid">
-              {groupedMeals.map((meal) => (
-                <button
-                  type="button"
-                  key={meal.key}
-                  className="meal-preview"
-                  onClick={() => setActiveTab('meals')}
-                >
-                  <span>{meal.label}</span>
-                  <strong>{meal.calories} cal</strong>
-                  <small>{meal.entries.length} foods</small>
-                </button>
-              ))}
-            </div>
-          </section>
+            ))}
+          </div>
         </section>
       </section>
     )
@@ -590,7 +713,7 @@ function App() {
         <div className="screen-header">
           <div>
             <p className="section-kicker">Profile</p>
-            <h2>Account, daily goal, and quick actions.</h2>
+            <h2>Account, nutrition mode, and quick actions.</h2>
           </div>
         </div>
 
@@ -621,8 +744,8 @@ function App() {
                 <span>calories eaten</span>
               </div>
               <div className="stat-chip">
-                <strong>{calorieGoal}</strong>
-                <span>daily goal</span>
+                <strong>{showGoalTracking ? 'On' : 'Off'}</strong>
+                <span>goal tracking</span>
               </div>
             </div>
 
@@ -643,47 +766,109 @@ function App() {
             </div>
           </article>
 
-          <article className="profile-card goal-card-panel">
+          <article className="profile-card settings-card">
             <div className="profile-header">
               <div>
-                <p className="section-kicker">Daily goal</p>
-                <h3>{showGoalEditor ? 'Edit your calorie target' : 'Your current target'}</h3>
+                <p className="section-kicker">Settings</p>
+                <h3>Nutrition Tracking Mode</h3>
               </div>
-              {!showGoalEditor ? (
-                <button type="button" className="ghost-button strong" onClick={openGoalEditor}>
-                  Edit goal
-                </button>
-              ) : null}
+              <span className="mode-pill">
+                {showGoalTracking ? 'Goal Tracking' : 'Tracking Only'}
+              </span>
             </div>
 
-            {showGoalEditor ? (
-              <form className="goal-card" onSubmit={handleGoalSubmit}>
-                <label htmlFor="goalInput">Daily calorie goal</label>
-                <div className="goal-row">
-                  <input
-                    id="goalInput"
-                    name="goalInput"
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={goalInput}
-                    onChange={(event) => setGoalInput(event.target.value)}
-                  />
+            <div className="mode-toggle" role="group" aria-label="Nutrition Tracking Mode">
+              <button
+                type="button"
+                className={
+                  showGoalTracking ? 'mode-option active' : 'mode-option'
+                }
+                onClick={() => handleTrackingModeChange('goal_tracking')}
+              >
+                <strong>Goal Tracking</strong>
+                <span>Show goals and progress bars.</span>
+              </button>
+              <button
+                type="button"
+                className={
+                  !showGoalTracking ? 'mode-option active' : 'mode-option'
+                }
+                onClick={() => handleTrackingModeChange('tracking_only')}
+              >
+                <strong>Tracking Only</strong>
+                <span>Hide goals for a minimal dashboard.</span>
+              </button>
+            </div>
+
+            {showGoalTracking ? (
+              <form className="nutrition-form" onSubmit={handleNutritionFormSubmit}>
+                <div className="form-grid nutrition-form-grid">
+                  <label>
+                    Calorie goal
+                    <input
+                      name="calorieGoal"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={nutritionForm.calorieGoal}
+                      onChange={handleNutritionFormChange}
+                    />
+                  </label>
+                  <label>
+                    Protein goal
+                    <input
+                      name="proteinGoal"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={nutritionForm.proteinGoal}
+                      onChange={handleNutritionFormChange}
+                    />
+                  </label>
+                  <label>
+                    Carbs goal
+                    <input
+                      name="carbsGoal"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={nutritionForm.carbsGoal}
+                      onChange={handleNutritionFormChange}
+                    />
+                  </label>
+                  <label>
+                    Fat goal
+                    <input
+                      name="fatGoal"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={nutritionForm.fatGoal}
+                      onChange={handleNutritionFormChange}
+                    />
+                  </label>
+                </div>
+                <div className="settings-actions">
                   <button type="submit" className="primary-button">
-                    Save
+                    Save goals
                   </button>
                 </div>
               </form>
             ) : (
-              <div className="goal-summary">
-                <div className="goal-pill">
-                  <strong>{calorieGoal}</strong>
-                  <span>calories per day</span>
-                </div>
+              <div className="tracking-only-note">
                 <p className="section-text">
-                  This goal drives the calorie ring on the Today tab and stays local to your app
-                  state for now.
+                  Goals are hidden while Tracking Only mode is active. Switch back to Goal
+                  Tracking to edit calorie and macro targets.
                 </p>
+                <div className="settings-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => handleTrackingModeChange('goal_tracking')}
+                  >
+                    Switch to Goal Tracking
+                  </button>
+                </div>
               </div>
             )}
           </article>
@@ -964,18 +1149,59 @@ function App() {
   )
 }
 
-function MacroCircle({ label, value, accent, unit }) {
+function NutritionMetricCard({
+  label,
+  current,
+  goal,
+  unit,
+  accent,
+  showGoal,
+  completed,
+  completionLabel,
+}) {
+  const safeGoal = goal > 0 ? goal : 0
+  const progressWidth = showGoal && safeGoal > 0 ? Math.min(100, (current / safeGoal) * 100) : 0
+  const currentText = formatMetricValue(current)
+  const goalText = formatMetricValue(safeGoal)
+
   return (
-    <article className={`ring-card macro-card ${accent}`}>
-      <div className="metric-ring small">
-        <div className="metric-inner">
-          <span className="metric-label">{label}</span>
-          <strong>
-            {value}
+    <article className={`nutrition-card ${accent} ${completed ? 'completed' : ''}`}>
+      <div className="nutrition-card-head">
+        <div className="nutrition-card-title">
+          <p className="section-kicker">{label}</p>
+          <strong className="nutrition-card-value">
+            {showGoal ? `${currentText} / ${goalText}` : currentText}
             <span>{unit}</span>
           </strong>
-          <span className="metric-subtext">Consumed today</span>
         </div>
+        <span className="mode-pill subtle">
+          {showGoal ? 'Goal mode' : 'Totals only'}
+        </span>
+      </div>
+
+      {showGoal ? (
+        <div className="nutrition-progress" aria-hidden="true">
+          <div className="nutrition-progress-track">
+            <div
+              className="nutrition-progress-fill"
+              style={{
+                width: `${progressWidth}%`,
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="nutrition-card-footer">
+        {showGoal ? (
+          completed ? (
+            <span className="nutrition-complete-badge">{completionLabel}</span>
+          ) : (
+            <span className="nutrition-card-note">Progress updates automatically.</span>
+          )
+        ) : (
+          <span className="nutrition-card-note">Total consumed today.</span>
+        )}
       </div>
     </article>
   )
